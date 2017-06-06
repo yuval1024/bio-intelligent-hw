@@ -5,6 +5,8 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+import time
 
 # Import MNIST data
 from tensorflow.examples.tutorials.mnist import input_data
@@ -14,17 +16,17 @@ mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
 # Parameters
 learning_rate = 0.01
 training_epochs = 100
-training_epochs = 10
 batch_size = 256
 display_step = 10
 examples_to_show = 10
 
 # Network Parameters
 n_hidden_1 = 256 # 1st layer num features
-n_hidden_2 = 128 # 2nd layer num features
+n_hidden_2 = 128 # 2nd, 3rd layer num features
 n_output = 30 # final layer, 30 floats vector
 n_input = 784 # MNIST data input (img shape: 28*28)
 
+logs_folder = "logs"
 
 # tf Graph input (only pictures)
 X = tf.placeholder("float", [None, n_input])
@@ -98,17 +100,28 @@ def main():
 
     # Launch the graph
     with tf.Session() as sess:
+        tf.summary.scalar('cost', cost)
+        tf.summary.scalar('learning_rate', learning_rate)
+        tf.summary.scalar('batch_size', batch_size)
+
+        summaries = tf.summary.merge_all()
+        writer = tf.summary.FileWriter(os.path.join(logs_folder, time.strftime("%Y-%m-%d-%H-%M-%S")))
+        writer.add_graph(sess.graph)
+
         sess.run(init)
+
         total_batch = int(mnist.train.num_examples/batch_size)
         # Training cycle
         for epoch in range(training_epochs):
             # Loop over all batches
             for i in range(total_batch):
                 batch_xs, batch_ys = mnist.train.next_batch(batch_size)
-                _, c, enc_data, decd_data = sess.run([optimizer, cost, encoder_op, decoder_op], feed_dict={X: batch_xs})
+                _, c, enc_data, decd_data, summary = sess.run([optimizer, cost, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+
+                writer.add_summary(summary, epoch*total_batch + i)
             # Display logs per epoch step
-            #if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
-            print("Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c))
+            if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
+                print("Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c))
             #print "enc_data shape: ", enc_data.shape, " decd_data.shape: ", decd_data.shape
 
 
