@@ -14,11 +14,13 @@ mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
 logs_folder = "logs"
 n_input = 784  # MNIST data input (img shape: 28*28)
 
-DRY_RUN = True
+DRY_RUN = False
+DRY_RUN_TRAIN_EPOCHS = 2
+TRAIN_EPOCHS = 200
 
-def build_model(learning_rate=0.01, n_hidden_1=512,n_hidden_2=256,n_output=30):
+
+def build_model(X, learning_rate=0.01, n_hidden_1=512,n_hidden_2=256,n_output=30):
     # tf Graph input (only pictures)
-    X = tf.placeholder("float", [None, n_input])
 
     weights = {
         'encoder_h1': tf.Variable(tf.random_normal([n_input, n_hidden_1])),
@@ -60,38 +62,46 @@ def build_model(learning_rate=0.01, n_hidden_1=512,n_hidden_2=256,n_output=30):
     cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
     optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
 
-    return X, encoder_op, decoder_op, cost, optimizer
+    return encoder_op, decoder_op, cost, optimizer
 
 
 def main():
     print "Hello world!"
+    training_epochs = TRAIN_EPOCHS
 
-    training_epochs = 100
     if DRY_RUN:
-        training_epochs = 2
+        training_epochs = DRY_RUN_TRAIN_EPOCHS
         print "DRY_RUN; set training_epochs to %d" % (training_epochs)
 
 
     batch_size_options = [256, 16, 32, 64, 128, 512]
     learning_rate_options = [0.1, 0.01, 0.005, 0.001, 0.0001]
 
+    X = tf.placeholder("float", [None, n_input])
+
     for batch_size in batch_size_options:
         for learning_rate in learning_rate_options:
-            display_step = 10
+            display_step = 5
 
             n_hidden_1 = 512
             n_hidden_2 = 256
             n_output = 30
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
-            X, encoder_op, decoder_op, cost, optimizer = build_model(learning_rate=learning_rate,
-                    n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2, n_output=n_output)
 
 
             # Launch the graph
             with tf.Session() as sess:
+
+                encoder_op, decoder_op, cost, optimizer = build_model(X=X, learning_rate=learning_rate,
+                  n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2,
+                  n_output=n_output)
+
                 # Initializing the variables
                 init = tf.global_variables_initializer()
+
+                #not_defined = tf.report_uninitialized_variables()
+                #print "not_defined: ", not_defined
 
                 tf.summary.scalar('cost', cost)
                 tf.summary.scalar('learning_rate', learning_rate)
@@ -102,20 +112,18 @@ def main():
                 writer.add_graph(sess.graph)
 
                 sess.run(init)
-
                 total_batch = int(mnist.train.num_examples/batch_size)
-
-                print "examples: ", mnist.train.num_examples, " batch_size: ", batch_size
-                print "total_batch: ", total_batch
 
                 # Training cycle
                 for epoch in range(training_epochs):
                     # Loop over all batches
                     for i in range(total_batch):
-                        batch_xs, batch_ys = mnist.train.next_batch(batch_size)
-                        _, c, enc_data, decd_data, summary = sess.run([optimizer, cost, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+                        if (epoch % display_step) == 0 or (epoch + 1 == training_epochs):
+                            batch_xs, batch_ys = mnist.train.next_batch(batch_size)
+                            _, c, enc_data, decd_data, summary = sess.run([optimizer, cost, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+                            writer.add_summary(summary, epoch * total_batch + i)
 
-                        writer.add_summary(summary, epoch*total_batch + i)
+
                     # Display logs per epoch step
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
                         print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
