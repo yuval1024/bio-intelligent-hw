@@ -149,7 +149,10 @@ def main():
                         #print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
                         print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
 
-
+                        print "running 100 times w/out optimizer, look if data was changed:"
+                        for iter in range(100):
+                            c, tl, l2_pen, enc_data, decd_data, summary = sess.run([cost, total_loss, regulize_enc_l2, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+                            print "iter %04d: Epoch: %05d cost: %.9f   total_loss: %.9f     l2_pen: %0.9f" % (iter, epoch+1, c, tl, l2_pen)
 
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
