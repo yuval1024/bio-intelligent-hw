@@ -1,6 +1,10 @@
 #!/usr/bin/python
 # based on:
 # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/3_NeuralNetworks/autoencoder.py
+# TODOs:
+# http://sebastianruder.com/optimizing-gradient-descent/
+# ReLu vs sigmoid
+
 
 import tensorflow as tf
 import numpy as np
@@ -20,7 +24,7 @@ TRAIN_EPOCHS = 5000
 
 
 #def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
-def build_model(X, keep_prob_lay1, keep_prob_rest, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.00001):
+def build_model(X, keep_prob_lay1=0.8, keep_prob_rest=0.5, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.00001):
     # tf Graph input (only pictures)
 
     weights = {
@@ -97,6 +101,7 @@ def main():
         print "DRY_RUN; set training_epochs to %d" % (training_epochs)
 
     batch_size_test = 1024
+    batch_size_test = 2048
     batch_size_options = [256, 16, 32, 64, 128, 512]
     learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
@@ -112,13 +117,13 @@ def main():
 
     for batch_size in batch_size_options:
         for learning_rate in learning_rate_options:
-            display_step = 5
+            display_step = 10
 
-            n_hidden_1 = 512
+            n_hidden_1 = 256
             n_hidden_2 = 128
             n_output = 30
-            keep_prob_lay1_val = 0.5
-            keep_prob_rest_val = 0.8
+            keep_prob_lay1_val = 0.9
+            keep_prob_rest_val = 0.9
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
 
