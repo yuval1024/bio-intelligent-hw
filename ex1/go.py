@@ -1,9 +1,13 @@
 #!/usr/bin/python
 # based on:
 # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/3_NeuralNetworks/autoencoder.py
+# https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/2_BasicModels/nearest_neighbor.ipynb
+
 # TODOs:
 # http://sebastianruder.com/optimizing-gradient-descent/
-# ReLu vs sigmoid
+# ReLu vs sigmoid - why is it exploding with ReLu??
+# L2 vs L1 - when to use each?
+# Add error on validation
 
 
 import tensorflow as tf
@@ -14,7 +18,7 @@ import time
 
 # Import MNIST data
 from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
+mnist = None
 logs_folder = "logs"
 n_input = 784  # MNIST data input (img shape: 28*28)
 
@@ -88,9 +92,39 @@ def build_model(X, keep_prob_lay1=0.8, keep_prob_rest=0.5, learning_rate=0.01, b
     return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
 
 
+def mnist_load():
+    global mnist
+    mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
+
+def mnist_normalize_global():
+    global mnist
+    # normalization train, test, validation images
+    train_images = mnist.train.images
+    train_mean, train_sd = np.mean(train_images), np.std(train_images)
+    print "train_images len: %d; mean: %2.6f; std: %2.6f" % (len(train_images), train_mean, train_sd)
+    train_images_norm = train_images - train_mean
+    train_images_norm = train_images_norm / train_sd
+    mnist.train._images = train_images_norm
+
+    # normalize test images according to train
+    test_images = mnist.test.images
+    test_images_norm = test_images - train_mean
+    test_images_norm = test_images_norm / train_sd
+    mnist.test._images = test_images_norm
+
+    # normalize validation images according to train
+    val_images = mnist.validation.images
+    val_images_norm = val_images - train_mean
+    val_images_norm = val_images_norm / train_sd
+    mnist.validation._images = val_images_norm
+
+
 def main():
     print "Hello world!"
     training_epochs = TRAIN_EPOCHS
+
+    mnist_load()
+    mnist_normalize_global()
 
     print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
     #test num_examples: 55000; validation num_examples: 5000; train num_examples: 10000
@@ -106,12 +140,10 @@ def main():
     learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
     X = tf.placeholder("float", [None, n_input])
-    #feed dropout values according to train/test
     keep_prob_lay1 = tf.placeholder(tf.float32)
     keep_prob_rest = tf.placeholder(tf.float32)
 
     # Nearest Neighbor calculation using L1 Distance
-    # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/2_BasicModels/nearest_neighbor.ipynb
     xtr = tf.placeholder("float", [None, 30])
     xte = tf.placeholder("float", [30])
 
@@ -126,6 +158,7 @@ def main():
             keep_prob_rest_val = 0.9
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
+
 
 
             # Launch the graph
@@ -149,11 +182,10 @@ def main():
                 summaries = tf.summary.merge_all()
                 writer = tf.summary.FileWriter(os.path.join(logs_folder, desc + "-" + time.strftime("%Y-%m-%d-%H-%M-%S")))
                 writer.add_graph(sess.graph)
-
                 sess.run(init)
-                total_batch = int(mnist.train.num_examples/batch_size)
 
                 # Training cycle
+                total_batch = int(mnist.train.num_examples/batch_size)
                 for epoch in range(training_epochs):
                     # Loop over all batches
                     for i in range(total_batch):
