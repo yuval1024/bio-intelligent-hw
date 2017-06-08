@@ -19,7 +19,7 @@ DRY_RUN_TRAIN_EPOCHS = 2
 TRAIN_EPOCHS = 5000
 
 
-def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.001):
+def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
     # tf Graph input (only pictures)
 
     weights = {
@@ -42,15 +42,24 @@ def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=3
 
 
     # Building the encoder
-    enc_layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(X, weights['encoder_h1']),biases['encoder_b1']))
-    enc_layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(enc_layer_1, weights['encoder_h2']),biases['encoder_b2']))
-    enc_layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(enc_layer_2, weights['encoder_h3']),biases['encoder_b3']))
-    encoder_op = enc_layer_3
+    #keep_prob = tf.placeholder("float")
+    #keep_prob = tf.placeholder("float")
+    activation_layer = tf.nn.sigmoid
+    #activation_layer = tf.nn.relu
+
+    enc_layer_1 = activation_layer(tf.add(tf.matmul(X, weights['encoder_h1']),biases['encoder_b1']))
+    enc_layer_dropout_1 = tf.nn.dropout(enc_layer_1, keep_prob_lay1)
+    enc_layer_2 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_1, weights['encoder_h2']),biases['encoder_b2']))
+    enc_layer_dropout_2 = tf.nn.dropout(enc_layer_2, keep_prob_rest)
+    enc_layer_3 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_2, weights['encoder_h3']),biases['encoder_b3']))
+    enc_layer_dropout_3 = tf.nn.dropout(enc_layer_3, keep_prob_rest)
+    encoder_op = enc_layer_dropout_3
+
 
     # Building the decoder
-    decd_layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(enc_layer_3, weights['decoder_h1']), biases['decoder_b1']))
-    decd_layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(decd_layer_1, weights['decoder_h2']), biases['decoder_b2']))
-    decd_layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(decd_layer_2, weights['decoder_h3']), biases['decoder_b3']))
+    decd_layer_1 = activation_layer(tf.add(tf.matmul(encoder_op, weights['decoder_h1']), biases['decoder_b1']))
+    decd_layer_2 = activation_layer(tf.add(tf.matmul(decd_layer_1, weights['decoder_h2']), biases['decoder_b2']))
+    decd_layer_3 = activation_layer(tf.add(tf.matmul(decd_layer_2, weights['decoder_h3']), biases['decoder_b3']))
     decoder_op = decd_layer_3
 
     # L2 penalty - encoder only
@@ -139,6 +148,8 @@ def main():
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
                         #print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
                         print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
+
+
 
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
