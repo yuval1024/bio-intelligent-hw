@@ -42,8 +42,6 @@ def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_
 
 
     # Building the encoder
-    #keep_prob = tf.placeholder("float")
-    #keep_prob = tf.placeholder("float")
     activation_layer = tf.nn.sigmoid
     #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
 
@@ -78,8 +76,6 @@ def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_
 
     total_loss = (cost + beta * regulize_enc_l2)
 
-    #optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cost)
-    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.8, beta2=beta2).minimize(total_loss)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.7, beta2=beta2).minimize(total_loss)
 
     return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
@@ -97,7 +93,7 @@ def main():
         training_epochs = DRY_RUN_TRAIN_EPOCHS
         print "DRY_RUN; set training_epochs to %d" % (training_epochs)
 
-    batch_size_test = 128
+    batch_size_test = 1024
     batch_size_options = [256, 16, 32, 64, 128, 512]
     learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
@@ -164,26 +160,27 @@ def main():
                         print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
 
                         #batch_size_test
-                        test_batch_xs, test_batch_ys = mnist.test.next_batch(batch_size)
+                        test_batch_xs, test_batch_ys = mnist.test.next_batch(batch_size_test)
                         test_enc_data = sess.run([encoder_op], feed_dict={X: test_batch_xs})
 
                         correct = 0
                         accuracy = 0
                         # Calculate L1 Distance
                         distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
-                        # Prediction: Get min distance index (Nearest neighbor)
-                        pred = tf.arg_min(distance, 0)
+                        pred_nn = tf.arg_min(distance, 0)
+                        pred_nn_k2 = tf.nn.top_k(tf.negative(distance), k=2)        # top 2 nearest neighbors
+
 
                         for i in range(len(test_enc_data[0])):
                             # Get nearest neighbor
-                            #nn_index = sess.run(pred, feed_dict={xtr: test_enc_data, xte: test_enc_data[i, :]})
-                            #nn_index = sess.run(pred, feed_dict={xtr: test_enc_data, xte: test_enc_data[i, :]})
-                            nn_index = sess.run(pred, feed_dict={xtr: test_enc_data[0], xte:test_enc_data[0][i, :]})
+                            nn_index, nn_index2 = sess.run([pred_nn, pred_nn_k2], feed_dict={xtr: test_enc_data[0], xte:test_enc_data[0][i, :]})
+                            nearest_neighbour_first_neigh = nn_index2[1][0]
+                            nearest_neighbour_second_neigh = nn_index2[1][1]
+                            assert nn_index == nearest_neighbour_first_neigh    # "nearest neighbor" is the point itself! since it's included in the search
 
-                            # Get nearest neighbor class label and compare it to its true label
-                            #print "Test", i, "Prediction:", np.argmax(test_batch_ys[nn_index]), "True Class:", np.argmax(test_batch_ys[i])
                             # Calculate accuracy
-                            if np.argmax(test_batch_ys[nn_index]) == np.argmax(test_batch_ys[i]):
+                            if np.argmax(test_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(test_batch_ys[i]):
+                            #if np.argmax(test_batch_ys[nn_index]) == np.argmax(test_batch_ys[i]):
                                 #accuracy += 1. / len(Xte)
                                 correct += 1
 
