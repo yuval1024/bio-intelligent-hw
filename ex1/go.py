@@ -19,7 +19,8 @@ DRY_RUN_TRAIN_EPOCHS = 2
 TRAIN_EPOCHS = 5000
 
 
-def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
+#def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
+def build_model(X, keep_prob_lay1, keep_prob_rest, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.00001):
     # tf Graph input (only pictures)
 
     weights = {
@@ -44,6 +45,8 @@ def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_
     # Building the encoder
     activation_layer = tf.nn.sigmoid
     #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
+
+
 
     enc_layer_1 = activation_layer(tf.add(tf.matmul(X, weights['encoder_h1']),biases['encoder_b1']))
     enc_layer_dropout_1 = tf.nn.dropout(enc_layer_1, keep_prob_lay1)
@@ -98,15 +101,12 @@ def main():
     learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
     X = tf.placeholder("float", [None, n_input])
+    #feed dropout values according to train/test
+    keep_prob_lay1 = tf.placeholder(tf.float32)
+    keep_prob_rest = tf.placeholder(tf.float32)
 
     # Nearest Neighbor calculation using L1 Distance
-    # Calculate L1 Distance
     # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/2_BasicModels/nearest_neighbor.ipynb
-    #distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
-    # Prediction: Get min distance index (Nearest neighbor)
-    #pred = tf.arg_min(distance, 0)
-    # tf Graph Input
-    #xtr = tf.placeholder("float", [None, 784])
     xtr = tf.placeholder("float", [None, 30])
     xte = tf.placeholder("float", [30])
 
@@ -117,6 +117,8 @@ def main():
             n_hidden_1 = 512
             n_hidden_2 = 128
             n_output = 30
+            keep_prob_lay1_val = 0.5
+            keep_prob_rest_val = 0.8
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
 
@@ -124,7 +126,9 @@ def main():
             # Launch the graph
             with tf.Session() as sess:
 
-                encoder_op, decoder_op, optimizer, total_loss, cost, regulize_enc_l2 = build_model(X=X, learning_rate=learning_rate,
+                encoder_op, decoder_op, optimizer, total_loss, cost, regulize_enc_l2 = \
+                    build_model(X=X, keep_prob_lay1=keep_prob_lay1_val, keep_prob_rest=keep_prob_rest_val,
+                                learning_rate=learning_rate,
                   n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2,
                   n_output=n_output)
 
@@ -150,7 +154,9 @@ def main():
                     for i in range(total_batch):
                         if (epoch % display_step) == 0 or (epoch + 1 == training_epochs):
                             batch_xs, batch_ys = mnist.train.next_batch(batch_size)
-                            _, c, tl, enc_data, decd_data, summary = sess.run([optimizer, cost, total_loss, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+                            _, c, tl, enc_data, decd_data, summary = sess.run(
+                                [optimizer, cost, total_loss, encoder_op, decoder_op, summaries],
+                                feed_dict={X: batch_xs, keep_prob_lay1: keep_prob_lay1_val, keep_prob_rest: keep_prob_rest_val})
                             writer.add_summary(summary, epoch * total_batch + i)
 
 
@@ -161,7 +167,8 @@ def main():
 
                         #batch_size_test
                         test_batch_xs, test_batch_ys = mnist.test.next_batch(batch_size_test)
-                        test_enc_data = sess.run([encoder_op], feed_dict={X: test_batch_xs})
+                        test_enc_data = sess.run([encoder_op],
+                            feed_dict={X: test_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
 
                         correct = 0
                         accuracy = 0
