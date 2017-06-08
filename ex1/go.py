@@ -19,7 +19,7 @@ DRY_RUN_TRAIN_EPOCHS = 2
 TRAIN_EPOCHS = 5000
 
 
-def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
+def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
     # tf Graph input (only pictures)
 
     weights = {
@@ -45,7 +45,7 @@ def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=3
     #keep_prob = tf.placeholder("float")
     #keep_prob = tf.placeholder("float")
     activation_layer = tf.nn.sigmoid
-    #activation_layer = tf.nn.relu
+    #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
 
     enc_layer_1 = activation_layer(tf.add(tf.matmul(X, weights['encoder_h1']),biases['encoder_b1']))
     enc_layer_dropout_1 = tf.nn.dropout(enc_layer_1, keep_prob_lay1)
@@ -79,7 +79,8 @@ def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=3
     total_loss = (cost + beta * regulize_enc_l2)
 
     #optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cost)
-    optimizer = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
+    #optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.8, beta2=beta2).minimize(total_loss)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.7, beta2=beta2).minimize(total_loss)
 
     return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
 
@@ -88,23 +89,36 @@ def main():
     print "Hello world!"
     training_epochs = TRAIN_EPOCHS
 
+    print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
+    #test num_examples: 55000; validation num_examples: 5000; train num_examples: 10000
+
+
     if DRY_RUN:
         training_epochs = DRY_RUN_TRAIN_EPOCHS
         print "DRY_RUN; set training_epochs to %d" % (training_epochs)
 
-
+    batch_size_test = 128
     batch_size_options = [256, 16, 32, 64, 128, 512]
-    learning_rate_options = [ 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
+    learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
     X = tf.placeholder("float", [None, n_input])
+
+    # Nearest Neighbor calculation using L1 Distance
+    # Calculate L1 Distance
+    # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/2_BasicModels/nearest_neighbor.ipynb
+    #distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
+    # Prediction: Get min distance index (Nearest neighbor)
+    #pred = tf.arg_min(distance, 0)
+    # tf Graph Input
+    #xtr = tf.placeholder("float", [None, 784])
+    xtr = tf.placeholder("float", [None, 30])
+    xte = tf.placeholder("float", [30])
 
     for batch_size in batch_size_options:
         for learning_rate in learning_rate_options:
             display_step = 5
 
-            n_hidden_1 = 700
-            n_hidden_2 = 512
-            #n_hidden_1 = 512
+            n_hidden_1 = 512
             n_hidden_2 = 128
             n_output = 30
 
@@ -149,11 +163,32 @@ def main():
                         #print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
                         print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
 
-                        print "running 100 times w/out optimizer, look if data was changed:"
-                        for iter in range(100):
-                            c, tl, l2_pen, enc_data, decd_data, summary = sess.run([cost, total_loss, regulize_enc_l2, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
-                            print "iter %04d: Epoch: %05d cost: %.9f   total_loss: %.9f     l2_pen: %0.9f" % (iter, epoch+1, c, tl, l2_pen)
+                        #batch_size_test
+                        test_batch_xs, test_batch_ys = mnist.test.next_batch(batch_size)
+                        test_enc_data = sess.run([encoder_op], feed_dict={X: test_batch_xs})
 
+                        correct = 0
+                        accuracy = 0
+                        # Calculate L1 Distance
+                        distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
+                        # Prediction: Get min distance index (Nearest neighbor)
+                        pred = tf.arg_min(distance, 0)
+
+                        for i in range(len(test_enc_data[0])):
+                            # Get nearest neighbor
+                            #nn_index = sess.run(pred, feed_dict={xtr: test_enc_data, xte: test_enc_data[i, :]})
+                            #nn_index = sess.run(pred, feed_dict={xtr: test_enc_data, xte: test_enc_data[i, :]})
+                            nn_index = sess.run(pred, feed_dict={xtr: test_enc_data[0], xte:test_enc_data[0][i, :]})
+
+                            # Get nearest neighbor class label and compare it to its true label
+                            #print "Test", i, "Prediction:", np.argmax(test_batch_ys[nn_index]), "True Class:", np.argmax(test_batch_ys[i])
+                            # Calculate accuracy
+                            if np.argmax(test_batch_ys[nn_index]) == np.argmax(test_batch_ys[i]):
+                                #accuracy += 1. / len(Xte)
+                                correct += 1
+
+                        accuracy = 100.0 * correct / len(test_batch_ys)
+                        print "correct %d/%d (%2.5f%%)" % (correct, len(test_batch_ys), accuracy)
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
 
