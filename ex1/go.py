@@ -16,10 +16,10 @@ n_input = 784  # MNIST data input (img shape: 28*28)
 
 DRY_RUN = False
 DRY_RUN_TRAIN_EPOCHS = 2
-TRAIN_EPOCHS = 200
+TRAIN_EPOCHS = 5000
 
 
-def build_model(X, learning_rate=0.01, n_hidden_1=512,n_hidden_2=256,n_output=30):
+def build_model(X, learning_rate=0.01, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.001):
     # tf Graph input (only pictures)
 
     weights = {
@@ -53,16 +53,26 @@ def build_model(X, learning_rate=0.01, n_hidden_1=512,n_hidden_2=256,n_output=30
     decd_layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(decd_layer_2, weights['decoder_h3']), biases['decoder_b3']))
     decoder_op = decd_layer_3
 
+    # L2 penalty - encoder only
+    # http://www.ritchieng.com/machine-learning/deep-learning/tensorflow/regularization/
+    regulize_enc_l2 = tf.nn.l2_loss(weights['encoder_h1']) + tf.nn.l2_loss(weights['encoder_h2']) + tf.nn.l2_loss(weights['encoder_h3'])
+
     # Prediction
     y_pred = decoder_op
     # Targets (Labels) are the input data.
     y_true = X
 
+
     # Define loss and optimizer, minimize the squared error
     cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
-    optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
+    #optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
 
-    return encoder_op, decoder_op, cost, optimizer
+    total_loss = (cost + beta * regulize_enc_l2)
+
+    #optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cost)
+    optimizer = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
+
+    return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
 
 
 def main():
@@ -75,7 +85,7 @@ def main():
 
 
     batch_size_options = [256, 16, 32, 64, 128, 512]
-    learning_rate_options = [0.1, 0.01, 0.005, 0.001, 0.0001]
+    learning_rate_options = [ 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
     X = tf.placeholder("float", [None, n_input])
 
@@ -83,8 +93,10 @@ def main():
         for learning_rate in learning_rate_options:
             display_step = 5
 
-            n_hidden_1 = 512
-            n_hidden_2 = 256
+            n_hidden_1 = 700
+            n_hidden_2 = 512
+            #n_hidden_1 = 512
+            n_hidden_2 = 128
             n_output = 30
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
@@ -93,17 +105,16 @@ def main():
             # Launch the graph
             with tf.Session() as sess:
 
-                encoder_op, decoder_op, cost, optimizer = build_model(X=X, learning_rate=learning_rate,
+                encoder_op, decoder_op, optimizer, total_loss, cost, regulize_enc_l2 = build_model(X=X, learning_rate=learning_rate,
                   n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2,
                   n_output=n_output)
 
                 # Initializing the variables
                 init = tf.global_variables_initializer()
 
-                #not_defined = tf.report_uninitialized_variables()
-                #print "not_defined: ", not_defined
-
                 tf.summary.scalar('cost', cost)
+                tf.summary.scalar('total_loss', total_loss)
+                tf.summary.scalar('regulize_enc_l2', regulize_enc_l2)
                 tf.summary.scalar('learning_rate', learning_rate)
                 tf.summary.scalar('batch_size', batch_size)
 
@@ -120,16 +131,17 @@ def main():
                     for i in range(total_batch):
                         if (epoch % display_step) == 0 or (epoch + 1 == training_epochs):
                             batch_xs, batch_ys = mnist.train.next_batch(batch_size)
-                            _, c, enc_data, decd_data, summary = sess.run([optimizer, cost, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
+                            _, c, tl, enc_data, decd_data, summary = sess.run([optimizer, cost, total_loss, encoder_op, decoder_op, summaries], feed_dict={X: batch_xs})
                             writer.add_summary(summary, epoch * total_batch + i)
 
 
                     # Display logs per epoch step
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
-                        print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
+                        #print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
+                        print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
 
 
-                print("done training; Optimization Finished!")
+                print("done training; Optimization Finished! trained: %s" % (desc))
 
 
 if __name__ == '__main__':
