@@ -139,26 +139,27 @@ def main():
     batch_size_options = [256, 16, 32, 64, 128, 512]
     learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
 
+    display_step = 10
+
+    n_hidden_1 = 256
+    n_hidden_2 = 64
+    n_output = 30
+    keep_prob_lay1_val = 1
+    keep_prob_rest_val = 1
+
+
     X = tf.placeholder("float", [None, n_input])
     keep_prob_lay1 = tf.placeholder(tf.float32)
     keep_prob_rest = tf.placeholder(tf.float32)
 
     # Nearest Neighbor calculation using L1 Distance
-    xtr = tf.placeholder("float", [None, 30])
-    xte = tf.placeholder("float", [30])
+    xtr = tf.placeholder("float", [None, n_output])
+    xte = tf.placeholder("float", [n_output])
 
     for batch_size in batch_size_options:
         for learning_rate in learning_rate_options:
-            display_step = 10
-
-            n_hidden_1 = 256
-            n_hidden_2 = 128
-            n_output = 30
-            keep_prob_lay1_val = 0.9
-            keep_prob_rest_val = 0.9
 
             desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
-
 
 
             # Launch the graph
@@ -224,8 +225,6 @@ def main():
 
                             # Calculate accuracy
                             if np.argmax(test_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(test_batch_ys[i]):
-                            #if np.argmax(test_batch_ys[nn_index]) == np.argmax(test_batch_ys[i]):
-                                #accuracy += 1. / len(Xte)
                                 correct += 1
 
                         accuracy = 100.0 * correct / len(test_batch_ys)
