@@ -11,6 +11,7 @@
 # global vs local normalization
 # Autoencoders does not work well with dropout layers.. workaround is to first add dropout, then treat as groundtruth X
 # looks like comparing to ALL nearest neighbors actually improves match % (comparing to 10k vs comparing to 2048 nodes)
+# TODO: tSNE: bettrer implementation; optimal perplexity
 
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
@@ -56,7 +57,6 @@ def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.
         else:
             weight_init_func = tf.random_normal
 
-
         list_weights = list()
         list_weights.append(['encoder_h1', weight_init_func, [n_input, n_hidden_1] ])
         list_weights.append(['encoder_h2', weight_init_func, [n_hidden_1, n_hidden_2] ])
@@ -64,7 +64,6 @@ def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.
         list_weights.append(['decoder_h1', weight_init_func, [n_output, n_hidden_2] ])
         list_weights.append(['decoder_h2', weight_init_func, [n_hidden_2, n_hidden_1] ])
         list_weights.append(['decoder_h3', weight_init_func, [n_hidden_1, n_input] ])
-
 
         list_biases = list()
         list_biases.append(['encoder_b1', weight_init_func, [n_hidden_1] ])
@@ -110,7 +109,6 @@ def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.
         regulize_enc_l2 = tf.nn.l2_loss(weights['encoder_h1']) + tf.nn.l2_loss(weights['encoder_h2']) + tf.nn.l2_loss(weights['encoder_h3'])
 
         y_pred = decoder_op
-        #y_true = X
         y_true = X_after_dropout
 
 
@@ -176,8 +174,8 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
     xtr = tf.placeholder("float", [None, n_output])
     xte = tf.placeholder("float", [n_output])
 
-    #valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
-    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(100)
+    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
+    #valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(100)
     test_enc_data = sess.run([encoder_op],
                              feed_dict={X: valida_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
 
@@ -201,11 +199,11 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
             correct += 1
 
     accuracy = 100.0 * correct / len(valida_batch_ys)
-    return correct, len(valida_batch_ys), accuracy, valida_batch_xs, valida_batch_ys
+    return correct, len(valida_batch_ys), accuracy, test_enc_data, valida_batch_ys,  valida_batch_xs
 
 # Scale and visualize the embedding vectors
 # Based on: http://scikit-learn.org/stable/auto_examples/manifold/plot_lle_digits.html#sphx-glr-auto-examples-manifold-plot-lle-digits-py
-def plot_embedding(X, Y, save_path, title=None):
+def plot_embedding(X, Y, images, save_path, title=None):
     x_min, x_max = np.min(X, 0), np.max(X, 0)
     X = (X - x_min) / (x_max - x_min)
 
@@ -220,18 +218,22 @@ def plot_embedding(X, Y, save_path, title=None):
         if hasattr(offsetbox, 'AnnotationBbox'):
             # only print thumbnails with matplotlib > 1.0
             shown_images = np.array([[1., 1.]])  # just something big
-            for i in range(Y.shape[0]):
+            for i in range(X.shape[0]):
                 dist = np.sum((X[i] - shown_images) ** 2, 1)
                 if np.min(dist) < 4e-3:
                     # don't show points that are too close
                     continue
                 shown_images = np.r_[shown_images, [X[i]]]
+                img1 = np.reshape(images[i], [28, 28])
                 imagebox = offsetbox.AnnotationBbox(
-                    offsetbox.OffsetImage(digits.images[i], cmap=plt.cm.gray_r),        ##FIX THIS
-                    X[i])
+                    offsetbox.OffsetImage(img1, cmap=plt.cm.gray_r),
+                    X[i],
+                    xybox=(10., -10.)
+                )
                 ax.add_artist(imagebox)
 
-    plt.savefig(save_path)
+    plt.savefig(save_path + '.jpg', dpi=1000)
+    plt.savefig(save_path + '.pdf')
     #plt.show()
 
 
@@ -303,12 +305,12 @@ def main():
                 for epoch in range(training_epochs):
                     # Loop over all batches
                     for i in range(total_batch):
-                        if (epoch % display_step) == 0 or (epoch + 1 == training_epochs):
-                            batch_xs, batch_ys = mnist.train.next_batch(batch_size)
-                            _, c, tl, enc_data, decd_data, summary = sess.run(
-                                [optimizer, cost, total_loss, encoder_op, decoder_op, summaries],
-                                feed_dict={X: batch_xs, keep_prob_lay1: keep_prob_lay1_val, keep_prob_rest: keep_prob_rest_val})
-                            writer.add_summary(summary, epoch * total_batch + i)
+                        #if (epoch % display_step) == 0 or (epoch + 1 == training_epochs):
+                        batch_xs, batch_ys = mnist.train.next_batch(batch_size)
+                        _, c, tl, enc_data, decd_data, summary = sess.run(
+                            [optimizer, cost, total_loss, encoder_op, decoder_op, summaries],
+                            feed_dict={X: batch_xs, keep_prob_lay1: keep_prob_lay1_val, keep_prob_rest: keep_prob_rest_val})
+                        writer.add_summary(summary, epoch * total_batch + i)
 
 
 
@@ -324,7 +326,7 @@ def main():
 
                     # Display logs per epoch step
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
-                        correct, total, accuracy, valida_batch_xs, valida_batch_ys = get_knn_error(sess=sess, encoder_op=encoder_op, X=X, keep_prob_lay1=keep_prob_lay1,
+                        correct, total, accuracy, enc_data, valida_batch_ys, valida_batch_xs = get_knn_error(sess=sess, encoder_op=encoder_op, X=X, keep_prob_lay1=keep_prob_lay1,
                             keep_prob_rest=keep_prob_rest, n_output=n_output)
 
                         print "validation KNN: correct %d/%d (%2.5f%%)" % (correct, total, accuracy)
@@ -334,13 +336,12 @@ def main():
                             save_path = saver.save(sess, os.path.join(models_folder, curr_model_desc + ".ckpt"))
                             print "model %s with %2.3f%% accuracy saved to %s" % (desc, accuracy, save_path)
 
-
-                            fig_save_path = os.path.join(models_folder, curr_model_desc + ".jpg")
+                            fig_save_path = os.path.join(models_folder, curr_model_desc)
                             tsne_model = TSNE(n_components=2, random_state=0)
-                            X_tsne = tsne_model.fit_transform(valida_batch_xs)
-                            fig = plot_embedding(X_tsne, valida_batch_ys, fig_save_path,
+                            #X_tsne = tsne_model.fit_transform(valida_batch_xs)
+                            X_tsne = tsne_model.fit_transform(enc_data[0])
+                            plot_embedding(X_tsne, valida_batch_ys, valida_batch_xs, fig_save_path,
                                "t-SNE embedding of the digits for model %s" % desc)
-
 
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
