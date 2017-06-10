@@ -6,179 +6,258 @@
 # TODOs:
 # http://sebastianruder.com/optimizing-gradient-descent/
 # ReLu vs sigmoid - why is it exploding with ReLu??
-# L2 vs L1 - when to use each?
+# L2 vs L1 - when to use each? Add L1 penalty to testing
 # Add error on validation
-
+# global vs local normalization
+# Autoencoders does not work well with dropout layers.. workaround is to first add dropout, then treat as groundtruth X
+# looks like comparing to ALL nearest neighbors actually improves match % (comparing to 10k vs comparing to 2048 nodes)
 
 import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import time
+from sklearn.manifold import TSNE
 
-# Import MNIST data
-from tensorflow.examples.tutorials.mnist import input_data
+
 mnist = None
 logs_folder = "logs"
+models_folder = "models"
 n_input = 784  # MNIST data input (img shape: 28*28)
 
 DRY_RUN = False
-DRY_RUN_TRAIN_EPOCHS = 2
-TRAIN_EPOCHS = 5000
+DRY_RUN_TRAIN_EPOCHS = 3
+DRY_RUN_DISPLAY_STEP = 10
+DRY_RUN_MIN_SAVE_ACC_PER = 60
+DISPLAY_STEP_NORMAL = 200
+TRAIN_EPOCHS_NORMAL = 5000
+MIN_SAVE_ACC_PER_NORMAL = 92
+
+min_save_acc_per = MIN_SAVE_ACC_PER_NORMAL
+if DRY_RUN:
+    min_save_acc_per = DRY_RUN_MIN_SAVE_ACC_PER
 
 
-#def build_model(X, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, keep_prob_lay1=0.5, keep_prob_rest=0.8, beta=0.00001):
-def build_model(X, keep_prob_lay1=0.8, keep_prob_rest=0.5, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.00001):
-    # tf Graph input (only pictures)
+def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.5, learning_rate=0.01, beta1=0.8, beta2=0.999, n_hidden_1=700,n_hidden_2=512, n_output=30, beta=0.000001):
+    # https://stackoverflow.com/a/36784797
 
-    weights = {
-        'encoder_h1': tf.Variable(tf.random_normal([n_input, n_hidden_1])),
-        'encoder_h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
-        'encoder_h3': tf.Variable(tf.random_normal([n_hidden_2, n_output])),
+    with tf.variable_scope(desc):
+        def get_variable(name, weight_init_func, shape):
+            if weight_init_func == tf.random_normal:
+                return tf.Variable(weight_init_func(shape))
+            elif weight_init_func == tf.contrib.layers.variance_scaling_initializer:
+                return tf.get_variable(name, shape=shape,
+                                    initializer=tf.contrib.layers.xavier_initializer())
 
-        'decoder_h1': tf.Variable(tf.random_normal([n_output, n_hidden_2])),
-        'decoder_h2': tf.Variable(tf.random_normal([n_hidden_2, n_hidden_1])),
-        'decoder_h3': tf.Variable(tf.random_normal([n_hidden_1, n_input])),
-    }
-    biases = {
-        'encoder_b1': tf.Variable(tf.random_normal([n_hidden_1])),
-        'encoder_b2': tf.Variable(tf.random_normal([n_hidden_2])),
-        'encoder_b3': tf.Variable(tf.random_normal([n_output])),
-        'decoder_b1': tf.Variable(tf.random_normal([n_hidden_2])),
-        'decoder_b2': tf.Variable(tf.random_normal([n_hidden_1])),
-        'decoder_b3': tf.Variable(tf.random_normal([n_input])),
-    }
+        if weight_init == 'weight_init':
+            weight_init_func = tf.contrib.layers.variance_scaling_initializer
+        else:
+            weight_init_func = tf.random_normal
 
 
-    # Building the encoder
-    activation_layer = tf.nn.sigmoid
-    #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
+        list_weights = list()
+        list_weights.append(['encoder_h1', weight_init_func, [n_input, n_hidden_1] ])
+        list_weights.append(['encoder_h2', weight_init_func, [n_hidden_1, n_hidden_2] ])
+        list_weights.append(['encoder_h3', weight_init_func, [n_hidden_2, n_output] ])
+        list_weights.append(['decoder_h1', weight_init_func, [n_output, n_hidden_2] ])
+        list_weights.append(['decoder_h2', weight_init_func, [n_hidden_2, n_hidden_1] ])
+        list_weights.append(['decoder_h3', weight_init_func, [n_hidden_1, n_input] ])
 
 
+        list_biases = list()
+        list_biases.append(['encoder_b1', weight_init_func, [n_hidden_1] ])
+        list_biases.append(['encoder_b2', weight_init_func, [n_hidden_2] ])
+        list_biases.append(['encoder_b3', weight_init_func, [n_output] ])
+        list_biases.append(['decoder_b1', weight_init_func, [n_hidden_2] ])
+        list_biases.append(['decoder_b2', weight_init_func, [n_hidden_1] ])
+        list_biases.append(['decoder_b3', weight_init_func, [n_input] ])
 
-    enc_layer_1 = activation_layer(tf.add(tf.matmul(X, weights['encoder_h1']),biases['encoder_b1']))
-    enc_layer_dropout_1 = tf.nn.dropout(enc_layer_1, keep_prob_lay1)
-    enc_layer_2 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_1, weights['encoder_h2']),biases['encoder_b2']))
-    enc_layer_dropout_2 = tf.nn.dropout(enc_layer_2, keep_prob_rest)
-    enc_layer_3 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_2, weights['encoder_h3']),biases['encoder_b3']))
-    enc_layer_dropout_3 = tf.nn.dropout(enc_layer_3, keep_prob_rest)
-    encoder_op = enc_layer_dropout_3
+        weights = {}
+        for weight in list_weights:
+            weights[weight[0]] = get_variable(weight[0], weight[1], weight[2])
 
-
-    # Building the decoder
-    decd_layer_1 = activation_layer(tf.add(tf.matmul(encoder_op, weights['decoder_h1']), biases['decoder_b1']))
-    decd_layer_2 = activation_layer(tf.add(tf.matmul(decd_layer_1, weights['decoder_h2']), biases['decoder_b2']))
-    decd_layer_3 = activation_layer(tf.add(tf.matmul(decd_layer_2, weights['decoder_h3']), biases['decoder_b3']))
-    decoder_op = decd_layer_3
-
-    # L2 penalty - encoder only
-    # http://www.ritchieng.com/machine-learning/deep-learning/tensorflow/regularization/
-    regulize_enc_l2 = tf.nn.l2_loss(weights['encoder_h1']) + tf.nn.l2_loss(weights['encoder_h2']) + tf.nn.l2_loss(weights['encoder_h3'])
-
-    # Prediction
-    y_pred = decoder_op
-    # Targets (Labels) are the input data.
-    y_true = X
+        biases = {}
+        for bias in list_biases:
+            biases[bias[0]] = get_variable(bias[0], bias[1], bias[2])
 
 
-    # Define loss and optimizer, minimize the squared error
-    cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
-    #optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
+        # Building the encoder
+        activation_layer = tf.nn.sigmoid
+        #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
 
-    total_loss = (cost + beta * regulize_enc_l2)
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.7, beta2=beta2).minimize(total_loss)
+        X_after_dropout = tf.nn.dropout(X, keep_prob_lay1)
+        enc_layer_1 = activation_layer(tf.add(tf.matmul(X_after_dropout, weights['encoder_h1']),biases['encoder_b1']))
+        enc_layer_dropout_1 = tf.nn.dropout(enc_layer_1, keep_prob_rest)
+        enc_layer_2 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_1, weights['encoder_h2']),biases['encoder_b2']))
 
-    return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
+        enc_layer_dropout_2 = tf.nn.dropout(enc_layer_2, keep_prob_rest)
+        enc_layer_3 = activation_layer(tf.add(tf.matmul(enc_layer_dropout_2, weights['encoder_h3']),biases['encoder_b3']))
+        enc_layer_dropout_3 = tf.nn.dropout(enc_layer_3, keep_prob_rest)
+        encoder_op = enc_layer_dropout_3
+
+
+        # Building the decoder
+        decd_layer_1 = activation_layer(tf.add(tf.matmul(encoder_op, weights['decoder_h1']), biases['decoder_b1']))
+        decd_layer_2 = activation_layer(tf.add(tf.matmul(decd_layer_1, weights['decoder_h2']), biases['decoder_b2']))
+        decd_layer_3 = activation_layer(tf.add(tf.matmul(decd_layer_2, weights['decoder_h3']), biases['decoder_b3']))
+        decoder_op = decd_layer_3
+
+        # L2 penalty - encoder only
+        # http://www.ritchieng.com/machine-learning/deep-learning/tensorflow/regularization/
+        regulize_enc_l2 = tf.nn.l2_loss(weights['encoder_h1']) + tf.nn.l2_loss(weights['encoder_h2']) + tf.nn.l2_loss(weights['encoder_h3'])
+
+        y_pred = decoder_op
+        #y_true = X
+        y_true = X_after_dropout
+
+
+        # Define loss and optimizer, minimize the squared error
+        cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
+        #optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
+
+        total_loss = (cost + beta * regulize_enc_l2)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.7, beta2=beta2).minimize(total_loss)
+        return encoder_op, decoder_op,  optimizer, total_loss, cost, regulize_enc_l2
 
 
 def mnist_load():
     global mnist
     mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
 
+
 def mnist_normalize_global():
+    def normalize_global(images, train_mean=None, train_sd=None):
+        if train_mean is None or train_sd is None:
+            train_mean, train_sd = np.mean(images), np.std(images)
+        images_normalized = images - train_mean
+        images_normalized = images_normalized / train_sd
+        return images_normalized, train_mean, train_sd
+
     global mnist
-    # normalization train, test, validation images
-    train_images = mnist.train.images
-    train_mean, train_sd = np.mean(train_images), np.std(train_images)
-    print "train_images len: %d; mean: %2.6f; std: %2.6f" % (len(train_images), train_mean, train_sd)
-    train_images_norm = train_images - train_mean
-    train_images_norm = train_images_norm / train_sd
-    mnist.train._images = train_images_norm
 
-    # normalize test images according to train
-    test_images = mnist.test.images
-    test_images_norm = test_images - train_mean
-    test_images_norm = test_images_norm / train_sd
-    mnist.test._images = test_images_norm
-
-    # normalize validation images according to train
-    val_images = mnist.validation.images
-    val_images_norm = val_images - train_mean
-    val_images_norm = val_images_norm / train_sd
-    mnist.validation._images = val_images_norm
+    # normalization train, validation, test images
+    mnist.train._images, train_mean, train_sd = normalize_global(mnist.train.images)
+    mnist.validation._images, _, _ = normalize_global(mnist.validation.images, train_mean, train_sd)
+    mnist.test._images, _, _ = normalize_global(mnist.test.images, train_mean, train_sd)
 
 
-def main():
-    print "Hello world!"
-    training_epochs = TRAIN_EPOCHS
+def mnist_normalize_local():
+    def normalize_local(images):
+        for index, image in enumerate(images):
+            m, sd = np.mean(image), np.std(image)
+            #print "image m, sd: " , m, sd
+            image = image - m
+            image = image / sd
+            images[index] = image
+        return images
 
-    mnist_load()
-    mnist_normalize_global()
+    global mnist
 
-    print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
-    #test num_examples: 55000; validation num_examples: 5000; train num_examples: 10000
+    # _images breaks encapsulation, but other options are to re-write/change code
+    mnist.train._images = normalize_local(mnist.train.images)
+    mnist.validation._images = normalize_local(mnist.validation.images)
+    mnist.test._images = normalize_local(mnist.test.images)
 
-
-    if DRY_RUN:
-        training_epochs = DRY_RUN_TRAIN_EPOCHS
-        print "DRY_RUN; set training_epochs to %d" % (training_epochs)
-
-    batch_size_test = 1024
-    batch_size_test = 2048
-    batch_size_options = [256, 16, 32, 64, 128, 512]
-    learning_rate_options = [0.0004, 0.001, 0.005, 0.05, 0.1, 0.01, 0.003,0.008, 0.0001]
-
-    display_step = 10
-
-    n_hidden_1 = 256
-    n_hidden_2 = 64
-    n_output = 30
-    keep_prob_lay1_val = 1
-    keep_prob_rest_val = 1
+    print "done with mnist_normalize_local"
 
 
-    X = tf.placeholder("float", [None, n_input])
-    keep_prob_lay1 = tf.placeholder(tf.float32)
-    keep_prob_rest = tf.placeholder(tf.float32)
+def mnist_normalize():
+    mnist_normalize_local()
+    #mnist_normalize_global()
+
+
+def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output):
+    global mnist
 
     # Nearest Neighbor calculation using L1 Distance
     xtr = tf.placeholder("float", [None, n_output])
     xte = tf.placeholder("float", [n_output])
 
+    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
+    test_enc_data = sess.run([encoder_op],
+                             feed_dict={X: valida_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
+
+    correct = 0
+    accuracy = 0
+
+    distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
+    pred_nn = tf.arg_min(distance, 0)
+    pred_nn_k2 = tf.nn.top_k(tf.negative(distance), k=2)  # get top 2 nearest neighbors
+
+    for i in range(len(test_enc_data[0])):
+        # Get nearest neighbor
+        nn_index, nn_index2 = sess.run([pred_nn, pred_nn_k2],
+                                       feed_dict={xtr: test_enc_data[0], xte: test_enc_data[0][i, :]})
+        nearest_neighbour_first_neigh = nn_index2[1][0]
+        nearest_neighbour_second_neigh = nn_index2[1][1]
+        assert nn_index == nearest_neighbour_first_neigh  # "nearest neighbor" is the point itself! since it's included in the search
+
+        # Calculate accuracy
+        if np.argmax(valida_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(valida_batch_ys[i]):
+            correct += 1
+
+    accuracy = 100.0 * correct / len(valida_batch_ys)
+    return correct, len(valida_batch_ys), accuracy
+
+
+def main():
+    global mnist
+
+    print "Hello world!"
+    training_epochs = TRAIN_EPOCHS_NORMAL
+    display_step = DISPLAY_STEP_NORMAL
+
+    if DRY_RUN:
+        training_epochs = DRY_RUN_TRAIN_EPOCHS
+        display_step = DRY_RUN_DISPLAY_STEP
+        print "DRY_RUN; set training_epochs to %d; display_step to %d" % (training_epochs, display_step)
+
+    mnist_load()
+    mnist_normalize()
+
+
+    print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
+
+    batch_size_test = 10000
+    batch_size_options = [128, 256, 16, 32, 64, 512]
+    learning_rate_options = [0.01, 0.08, 0.07, 0.04] #0.007, 0.0003, 0.001, 0.005, 0.05, 0.003,0.008, 0.0001]
+
+
+    n_hidden_1 = 256
+    n_hidden_2 = 128
+    n_output = 30
+    keep_prob_lay1_val = 0.8
+    keep_prob_rest_val = 1
+    weight_init = 'xv'
+
+    X = tf.placeholder("float", [None, n_input])
+    keep_prob_lay1 = tf.placeholder(tf.float32)
+    keep_prob_rest = tf.placeholder(tf.float32)
+
+
     for batch_size in batch_size_options:
         for learning_rate in learning_rate_options:
 
-            desc = "bs_%d_lr_%2.5f_hs_%d_%d_out_%d" % (batch_size, learning_rate, n_hidden_1, n_hidden_2, n_output)
-
+            desc = "lr_%2.5f_kp1_%0.2f_kpr_%0.2f_wi_%s_bs_%d_hs_%d_%d_out_%d" % (learning_rate, keep_prob_lay1_val, keep_prob_rest_val, weight_init, batch_size, n_hidden_1, n_hidden_2, n_output)
+            print "start trainign desc: ", desc
 
             # Launch the graph
             with tf.Session() as sess:
-
                 encoder_op, decoder_op, optimizer, total_loss, cost, regulize_enc_l2 = \
-                    build_model(X=X, keep_prob_lay1=keep_prob_lay1_val, keep_prob_rest=keep_prob_rest_val,
-                                learning_rate=learning_rate,
-                  n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2,
-                  n_output=n_output)
+                    build_model(desc=desc, X=X, weight_init='xv', keep_prob_lay1=keep_prob_lay1_val, keep_prob_rest=keep_prob_rest_val,
+                        learning_rate=learning_rate,
+                        n_hidden_1=n_hidden_1, n_hidden_2=n_hidden_2,
+                        n_output=n_output)
 
                 # Initializing the variables
                 init = tf.global_variables_initializer()
+                saver = tf.train.Saver()
 
                 tf.summary.scalar('cost', cost)
                 tf.summary.scalar('total_loss', total_loss)
                 tf.summary.scalar('regulize_enc_l2', regulize_enc_l2)
-                tf.summary.scalar('learning_rate', learning_rate)
-                tf.summary.scalar('batch_size', batch_size)
 
                 summaries = tf.summary.merge_all()
                 writer = tf.summary.FileWriter(os.path.join(logs_folder, desc + "-" + time.strftime("%Y-%m-%d-%H-%M-%S")))
@@ -198,40 +277,33 @@ def main():
                             writer.add_summary(summary, epoch * total_batch + i)
 
 
+
+                    if epoch % 10 == 0:
+                        batch_xs_val, batch_ys_val = mnist.validation.next_batch(mnist.validation.num_examples)
+                        c_val, tl_val = sess.run(
+                            [cost, total_loss],
+                            feed_dict={X: batch_xs_val, keep_prob_lay1: keep_prob_lay1_val,
+                            keep_prob_rest: keep_prob_rest_val})
+
+                        print "Epoch: %05d train cost:         %.9f   train total_loss:         %.9f" % (epoch + 1, c, tl)
+                        print "Epoch: %05d validation cost:    %.9f   validation total_loss:    %.9f" % (epoch+1, c_val, tl_val)
+
                     # Display logs per epoch step
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
-                        #print "Epoch:", '%04d' % (epoch+1), "cost=", "{:.9f}".format(c)
-                        print "Epoch: %05d cost: %.9f   total_loss: %.9f" % (epoch+1, c, tl)
+                        correct, total, accuracy = get_knn_error(sess=sess, encoder_op=encoder_op, X=X, keep_prob_lay1=keep_prob_lay1,
+                            keep_prob_rest=keep_prob_rest, n_output=n_output)
 
-                        #batch_size_test
-                        test_batch_xs, test_batch_ys = mnist.test.next_batch(batch_size_test)
-                        test_enc_data = sess.run([encoder_op],
-                            feed_dict={X: test_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
+                        print "validation KNN: correct %d/%d (%2.5f%%)" % (correct, total, accuracy)
 
-                        correct = 0
-                        accuracy = 0
-                        # Calculate L1 Distance
-                        distance = tf.reduce_sum(tf.abs(tf.add(xtr, tf.negative(xte))), reduction_indices=1)
-                        pred_nn = tf.arg_min(distance, 0)
-                        pred_nn_k2 = tf.nn.top_k(tf.negative(distance), k=2)        # top 2 nearest neighbors
+                        if (accuracy > min_save_acc_per):
+                            curr_model_desc = desc + "epc_%d_acc_%2.3f" % (epoch, accuracy) + ".ckpt"
+                            save_path = saver.save(sess, os.path.join(models_folder, curr_model_desc))
+                            print "model %s with %2.3f%% accuracy saved to %s" % (desc, accuracy, save_path)
 
-
-                        for i in range(len(test_enc_data[0])):
-                            # Get nearest neighbor
-                            nn_index, nn_index2 = sess.run([pred_nn, pred_nn_k2], feed_dict={xtr: test_enc_data[0], xte:test_enc_data[0][i, :]})
-                            nearest_neighbour_first_neigh = nn_index2[1][0]
-                            nearest_neighbour_second_neigh = nn_index2[1][1]
-                            assert nn_index == nearest_neighbour_first_neigh    # "nearest neighbor" is the point itself! since it's included in the search
-
-                            # Calculate accuracy
-                            if np.argmax(test_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(test_batch_ys[i]):
-                                correct += 1
-
-                        accuracy = 100.0 * correct / len(test_batch_ys)
-                        print "correct %d/%d (%2.5f%%)" % (correct, len(test_batch_ys), accuracy)
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
 
 
 if __name__ == '__main__':
     main()
+
