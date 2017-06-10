@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import offsetbox
 import os
 import time
 from sklearn.manifold import TSNE
@@ -175,7 +176,8 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
     xtr = tf.placeholder("float", [None, n_output])
     xte = tf.placeholder("float", [n_output])
 
-    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
+    #valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
+    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(100)
     test_enc_data = sess.run([encoder_op],
                              feed_dict={X: valida_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
 
@@ -199,7 +201,39 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
             correct += 1
 
     accuracy = 100.0 * correct / len(valida_batch_ys)
-    return correct, len(valida_batch_ys), accuracy
+    return correct, len(valida_batch_ys), accuracy, valida_batch_xs, valida_batch_ys
+
+# Scale and visualize the embedding vectors
+# Based on: http://scikit-learn.org/stable/auto_examples/manifold/plot_lle_digits.html#sphx-glr-auto-examples-manifold-plot-lle-digits-py
+def plot_embedding(X, Y, save_path, title=None):
+    x_min, x_max = np.min(X, 0), np.max(X, 0)
+    X = (X - x_min) / (x_max - x_min)
+
+    plt.figure()
+    ax = plt.subplot(111)
+    for i in range(X.shape[0]):
+        plt.text(X[i, 0], X[i, 1], str(np.argmax(Y[i])),
+                 color=plt.cm.Set1(np.argmax(Y[i]) / 10.),
+                 fontdict={'weight': 'bold', 'size': 9})
+
+    if False:
+        if hasattr(offsetbox, 'AnnotationBbox'):
+            # only print thumbnails with matplotlib > 1.0
+            shown_images = np.array([[1., 1.]])  # just something big
+            for i in range(Y.shape[0]):
+                dist = np.sum((X[i] - shown_images) ** 2, 1)
+                if np.min(dist) < 4e-3:
+                    # don't show points that are too close
+                    continue
+                shown_images = np.r_[shown_images, [X[i]]]
+                imagebox = offsetbox.AnnotationBbox(
+                    offsetbox.OffsetImage(digits.images[i], cmap=plt.cm.gray_r),        ##FIX THIS
+                    X[i])
+                ax.add_artist(imagebox)
+
+    plt.savefig(save_path)
+    #plt.show()
+
 
 
 def main():
@@ -221,8 +255,8 @@ def main():
     print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
 
     batch_size_test = 10000
-    batch_size_options = [128, 256, 16, 32, 64, 512]
-    learning_rate_options = [0.01, 0.08, 0.07, 0.04] #0.007, 0.0003, 0.001, 0.005, 0.05, 0.003,0.008, 0.0001]
+    batch_size_options = [64, 128, 256, 16, 32, 512]
+    learning_rate_options = [0.01, 0.008, 0.007, 0.004] #0.007, 0.0003, 0.001, 0.005, 0.05, 0.003,0.008, 0.0001]
 
 
     n_hidden_1 = 256
@@ -290,15 +324,23 @@ def main():
 
                     # Display logs per epoch step
                     if (epoch % display_step) == 0 or (epoch+1 == training_epochs):
-                        correct, total, accuracy = get_knn_error(sess=sess, encoder_op=encoder_op, X=X, keep_prob_lay1=keep_prob_lay1,
+                        correct, total, accuracy, valida_batch_xs, valida_batch_ys = get_knn_error(sess=sess, encoder_op=encoder_op, X=X, keep_prob_lay1=keep_prob_lay1,
                             keep_prob_rest=keep_prob_rest, n_output=n_output)
 
                         print "validation KNN: correct %d/%d (%2.5f%%)" % (correct, total, accuracy)
 
                         if (accuracy > min_save_acc_per):
-                            curr_model_desc = desc + "epc_%d_acc_%2.3f" % (epoch, accuracy) + ".ckpt"
-                            save_path = saver.save(sess, os.path.join(models_folder, curr_model_desc))
+                            curr_model_desc = desc + "epc_%d_acc_%2.3f" % (epoch, accuracy)
+                            save_path = saver.save(sess, os.path.join(models_folder, curr_model_desc + ".ckpt"))
                             print "model %s with %2.3f%% accuracy saved to %s" % (desc, accuracy, save_path)
+
+
+                            fig_save_path = os.path.join(models_folder, curr_model_desc + ".jpg")
+                            tsne_model = TSNE(n_components=2, random_state=0)
+                            X_tsne = tsne_model.fit_transform(valida_batch_xs)
+                            fig = plot_embedding(X_tsne, valida_batch_ys, fig_save_path,
+                               "t-SNE embedding of the digits for model %s" % desc)
+
 
 
                 print("done training; Optimization Finished! trained: %s" % (desc))
