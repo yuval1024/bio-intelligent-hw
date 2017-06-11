@@ -1,5 +1,4 @@
 # bio-intelligent-hw
-# This branch is "frozen" as of June 12th, 2017.
 
 Homework for "Bio Intelligent Algorithms".
 
