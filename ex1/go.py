@@ -5,13 +5,7 @@
 
 # TODOs:
 # http://sebastianruder.com/optimizing-gradient-descent/
-# ReLu vs sigmoid - why is it exploding with ReLu??
-# L2 vs L1 - when to use each? Add L1 penalty to testing
-# Add error on validation
-# global vs local normalization
-# Autoencoders does not work well with dropout layers.. workaround is to first add dropout, then treat as groundtruth X
-# looks like comparing to ALL nearest neighbors actually improves match % (comparing to 10k vs comparing to 2048 nodes)
-# TODO: tSNE: bettrer implementation; optimal perplexity
+# Add noise
 
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
@@ -32,9 +26,11 @@ DRY_RUN = False
 DRY_RUN_TRAIN_EPOCHS = 3
 DRY_RUN_DISPLAY_STEP = 10
 DRY_RUN_MIN_SAVE_ACC_PER = 60
-DISPLAY_STEP_NORMAL = 200
+DISPLAY_STEP_NORMAL = 50
 TRAIN_EPOCHS_NORMAL = 5000
 MIN_SAVE_ACC_PER_NORMAL = 92
+
+parameter_search = False
 
 min_save_acc_per = MIN_SAVE_ACC_PER_NORMAL
 if DRY_RUN:
@@ -84,6 +80,7 @@ def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.
 
         # Building the encoder
         activation_layer = tf.nn.sigmoid
+        #activation_layer = tf.nn.tanh
         #activation_layer = tf.nn.relu          #TODO: shouldn't RELU be better?
 
 
@@ -109,7 +106,8 @@ def build_model(desc, X, weight_init="xv", keep_prob_lay1=0.8, keep_prob_rest=0.
         regulize_enc_l2 = tf.nn.l2_loss(weights['encoder_h1']) + tf.nn.l2_loss(weights['encoder_h2']) + tf.nn.l2_loss(weights['encoder_h3'])
 
         y_pred = decoder_op
-        y_true = X_after_dropout
+        #y_true = X_after_dropout
+        y_true = X
 
 
         # Define loss and optimizer, minimize the squared error
@@ -174,10 +172,9 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
     xtr = tf.placeholder("float", [None, n_output])
     xte = tf.placeholder("float", [n_output])
 
-    valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(mnist.validation.num_examples)
-    #valida_batch_xs, valida_batch_ys = mnist.validation.next_batch(100)
+    test_batch_xs, test_batch_ys = mnist.test.next_batch(mnist.test.num_examples)
     test_enc_data = sess.run([encoder_op],
-                             feed_dict={X: valida_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
+                             feed_dict={X: test_batch_xs, keep_prob_lay1: 1, keep_prob_rest: 1})
 
     correct = 0
     accuracy = 0
@@ -195,11 +192,11 @@ def get_knn_error(sess, encoder_op, X, keep_prob_lay1, keep_prob_rest, n_output)
         assert nn_index == nearest_neighbour_first_neigh  # "nearest neighbor" is the point itself! since it's included in the search
 
         # Calculate accuracy
-        if np.argmax(valida_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(valida_batch_ys[i]):
+        if np.argmax(test_batch_ys[nearest_neighbour_second_neigh]) == np.argmax(test_batch_ys[i]):
             correct += 1
 
-    accuracy = 100.0 * correct / len(valida_batch_ys)
-    return correct, len(valida_batch_ys), accuracy, test_enc_data, valida_batch_ys,  valida_batch_xs
+    accuracy = 100.0 * correct / len(test_batch_ys)
+    return correct, len(test_batch_ys), accuracy, test_enc_data, test_batch_ys,  test_batch_xs
 
 # Scale and visualize the embedding vectors
 # Based on: http://scikit-learn.org/stable/auto_examples/manifold/plot_lle_digits.html#sphx-glr-auto-examples-manifold-plot-lle-digits-py
@@ -257,8 +254,12 @@ def main():
     print "test num_examples: %d; validation num_examples: %d; train num_examples: %d" % (mnist.train.num_examples, mnist.validation.num_examples, mnist.test.num_examples)
 
     batch_size_test = 10000
-    batch_size_options = [64, 128, 256, 16, 32, 512]
-    learning_rate_options = [0.01, 0.008, 0.007, 0.004] #0.007, 0.0003, 0.001, 0.005, 0.05, 0.003,0.008, 0.0001]
+    if parameter_search:
+        batch_size_options = [64, 128, 256, 16, 32, 512]
+        learning_rate_options = [0.01, 0.008, 0.007, 0.004] #0.007, 0.0003, 0.001, 0.005, 0.05, 0.003,0.008, 0.0001]
+    else:
+        batch_size_options = [64]
+        learning_rate_options = [0.004]
 
 
     n_hidden_1 = 256
@@ -321,7 +322,7 @@ def main():
                             feed_dict={X: batch_xs_val, keep_prob_lay1: keep_prob_lay1_val,
                             keep_prob_rest: keep_prob_rest_val})
 
-                        print "Epoch: %05d train cost:         %.9f   train total_loss:         %.9f" % (epoch + 1, c, tl)
+                        print "Epoch: %05d mini-batch cost:    %.9f   mini-batch total_loss:    %.9f" % (epoch + 1, c, tl)
                         print "Epoch: %05d validation cost:    %.9f   validation total_loss:    %.9f" % (epoch+1, c_val, tl_val)
 
                     # Display logs per epoch step
@@ -332,7 +333,7 @@ def main():
                         print "validation KNN: correct %d/%d (%2.5f%%)" % (correct, total, accuracy)
 
                         if (accuracy > min_save_acc_per):
-                            curr_model_desc = desc + "epc_%d_acc_%2.3f" % (epoch, accuracy)
+                            curr_model_desc = desc + "epc_%d_acc_%2.3f_test" % (epoch, accuracy)
                             save_path = saver.save(sess, os.path.join(models_folder, curr_model_desc + ".ckpt"))
                             print "model %s with %2.3f%% accuracy saved to %s" % (desc, accuracy, save_path)
 
